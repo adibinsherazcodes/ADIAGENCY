@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Hls from "hls.js";
 import { motion } from "motion/react";
 import { Route, Routes, useLocation, useNavigate } from "react-router-dom";
@@ -25,13 +25,56 @@ const INSTAGRAM_URL = "https://instagram.com/adibinsheraz";
 const PHONE_DISPLAY = "92+3007537001";
 const PHONE_LINK = "tel:+923007537001";
 const WHATSAPP_NUMBER = "923007537001";
+const HERO_VIDEO_MP4 =
+  "https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260307_083826_e938b29f-a43a-41ec-a153-3d4730578ab8.mp4";
+const PROCESS_VIDEO_HLS = "https://stream.mux.com/9JXDljEVWYwWu01PUkAemafDugK89o01BR6zqJ3aS9u00A.m3u8";
+const STATS_VIDEO_HLS = "https://stream.mux.com/NcU3HlHeF7CUL86azTTzpy3Tlb00d6iF3BmCdFslMJYM.m3u8";
+const CTA_VIDEO_HLS = "https://stream.mux.com/8wrHPCX2dC3msyYU9ObwqNdm00u3ViXvOSHUMRYSEe5Q.m3u8";
+
+function preloadImage(src: string) {
+  return new Promise<void>((resolve) => {
+    const img = new Image();
+    img.onload = () => resolve();
+    img.onerror = () => resolve();
+    img.src = src;
+  });
+}
+
+function preloadMedia(url: string) {
+  return fetch(url, { cache: "force-cache", mode: "no-cors" })
+    .then(() => undefined)
+    .catch(() => undefined);
+}
+
+function addHeadLink(rel: string, href: string, crossOrigin = true) {
+  const existing = document.head.querySelector(`link[rel="${rel}"][href="${href}"]`);
+  if (existing) return;
+  const link = document.createElement("link");
+  link.rel = rel;
+  link.href = href;
+  if (crossOrigin) link.crossOrigin = "anonymous";
+  document.head.appendChild(link);
+}
+
+function InitialLoader() {
+  return (
+    <div className="fixed inset-0 z-[9999] flex flex-col items-center justify-center bg-black text-white">
+      <img src={logoIcon} alt={`${AGENCY_NAME} logo`} className="h-20 w-20 rounded-full object-contain" />
+      <p className="mt-5 font-heading text-3xl italic">{AGENCY_NAME}</p>
+      <div className="mt-8 h-10 w-10 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+      <p className="mt-3 text-xs text-white/60">Loading experience...</p>
+    </div>
+  );
+}
 
 function HlsBackgroundVideo({
   src,
   className,
+  liteMode = false,
 }: {
   src: string;
   className?: string;
+  liteMode?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
   useEffect(() => {
@@ -39,15 +82,61 @@ function HlsBackgroundVideo({
     if (!video) return;
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = src;
+      video.play().catch(() => undefined);
       return;
     }
     if (Hls.isSupported()) {
-      const hls = new Hls();
+      const hls = new Hls({
+        enableWorker: true,
+        lowLatencyMode: !liteMode,
+        backBufferLength: liteMode ? 12 : 30,
+        maxBufferLength: liteMode ? 10 : 20,
+        maxMaxBufferLength: liteMode ? 20 : 40,
+        capLevelToPlayerSize: true,
+      });
       hls.loadSource(src);
       hls.attachMedia(video);
-      return () => hls.destroy();
+      const onManifestParsed = () => {
+        video.play().catch(() => undefined);
+      };
+      hls.on(Hls.Events.MANIFEST_PARSED, onManifestParsed);
+      hls.on(Hls.Events.ERROR, (_event, data) => {
+        if (!data.fatal) return;
+        if (data.type === Hls.ErrorTypes.NETWORK_ERROR) {
+          hls.startLoad();
+          return;
+        }
+        if (data.type === Hls.ErrorTypes.MEDIA_ERROR) {
+          hls.recoverMediaError();
+          return;
+        }
+        hls.destroy();
+      });
+      return () => {
+        hls.off(Hls.Events.MANIFEST_PARSED, onManifestParsed);
+        hls.destroy();
+      };
     }
-  }, [src]);
+  }, [src, liteMode]);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry) return;
+        if (entry.isIntersecting) {
+          video.play().catch(() => undefined);
+          return;
+        }
+        video.pause();
+      },
+      { threshold: 0.12 },
+    );
+    observer.observe(video);
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <video
       ref={videoRef}
@@ -55,6 +144,8 @@ function HlsBackgroundVideo({
       loop
       muted
       playsInline
+      preload={liteMode ? "metadata" : "auto"}
+      disablePictureInPicture
       className={className ?? "absolute inset-0 h-full w-full object-cover"}
     />
   );
@@ -78,6 +169,45 @@ const reveal = {
 };
 
 export default function App() {
+  const [isBootReady, setIsBootReady] = useState(false);
+  const isLiteMode = useMemo(() => {
+    const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+    const saveData = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData ?? false;
+    const lowCpu = (navigator.hardwareConcurrency ?? 8) <= 4;
+    const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8;
+    return reducedMotion || saveData || lowCpu || memory <= 4;
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    const minLoaderTime = new Promise((resolve) => window.setTimeout(resolve, 900));
+    const criticalAssets = [logoIcon, featureOne, featureTwo];
+    const preloadAssets = Promise.allSettled(criticalAssets.map((asset) => preloadImage(asset)));
+    const preloadVideos = Promise.allSettled([
+      preloadMedia(HERO_VIDEO_MP4),
+      preloadMedia(PROCESS_VIDEO_HLS),
+      preloadMedia(STATS_VIDEO_HLS),
+      preloadMedia(CTA_VIDEO_HLS),
+    ]);
+    const waitForFonts = document.fonts?.ready ?? Promise.resolve();
+    const safetyTimeout = new Promise((resolve) => window.setTimeout(resolve, 4500));
+
+    addHeadLink("preconnect", "https://d8j0ntlcm91z4.cloudfront.net");
+    addHeadLink("preconnect", "https://stream.mux.com");
+    addHeadLink("dns-prefetch", "//d8j0ntlcm91z4.cloudfront.net", false);
+    addHeadLink("dns-prefetch", "//stream.mux.com", false);
+
+    Promise.race([Promise.all([minLoaderTime, preloadAssets, preloadVideos, waitForFonts]), safetyTimeout]).finally(
+      () => {
+        if (!cancelled) setIsBootReady(true);
+      },
+    );
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   useEffect(() => {
     let favicon = document.querySelector("link[rel='icon']") as HTMLLinkElement | null;
     if (!favicon) {
@@ -88,15 +218,17 @@ export default function App() {
     favicon.href = logoIcon;
   }, []);
 
+  if (!isBootReady) return <InitialLoader />;
+
   return (
     <Routes>
-      <Route path="/" element={<HomePage />} />
+      <Route path="/" element={<HomePage liteMode={isLiteMode} />} />
       <Route path="/pricing" element={<PricingPage />} />
     </Routes>
   );
 }
 
-function HomePage() {
+function HomePage({ liteMode }: { liteMode: boolean }) {
   const location = useLocation();
 
   useEffect(() => {
@@ -110,14 +242,14 @@ function HomePage() {
   return (
     <div className="bg-black text-foreground capitalize">
       <Navbar />
-      <Hero />
+      <Hero liteMode={liteMode} />
       <div className="bg-black">
-        <StartSection />
+        <StartSection liteMode={liteMode} />
         <FeaturesChess />
         <FeaturesGrid />
-        <Stats />
+        <Stats liteMode={liteMode} />
         <Testimonials />
-        <CtaFooter />
+        <CtaFooter liteMode={liteMode} />
       </div>
     </div>
   );
@@ -168,9 +300,11 @@ function Navbar() {
               src={logoIcon}
               alt={`${AGENCY_NAME} logo`}
               className="h-full w-full rounded-full object-contain"
+              loading="eager"
+              decoding="async"
             />
           </div>
-          <span className="hidden font-heading text-2xl italic text-white/90 sm:inline-block">
+          <span className="font-heading text-lg italic text-white/90 sm:text-2xl">
             {AGENCY_NAME}
           </span>
         </div>
@@ -202,7 +336,7 @@ function Navbar() {
   );
 }
 
-function Hero() {
+function Hero({ liteMode }: { liteMode: boolean }) {
   const navigate = useNavigate();
   return (
     <section id="home" className="relative h-[960px] overflow-visible md:h-[1000px]">
@@ -211,14 +345,13 @@ function Hero() {
         loop
         muted
         playsInline
+        preload={liteMode ? "metadata" : "auto"}
+        disablePictureInPicture
         poster="/images/hero_bg.jpeg"
         className="absolute left-0 z-0 h-auto w-full object-contain"
         style={{ top: "20%" }}
       >
-        <source
-          src="https://d8j0ntlcm91z4.cloudfront.net/user_38xzZboKViGWJOttwIXH07lWA1P/hf_20260307_083826_e938b29f-a43a-41ec-a153-3d4730578ab8.mp4"
-          type="video/mp4"
-        />
+        <source src={HERO_VIDEO_MP4} type="video/mp4" />
       </video>
       <div className="absolute inset-0 z-0 bg-black/5" />
       <div
@@ -226,11 +359,11 @@ function Hero() {
         style={{ background: "linear-gradient(to bottom, transparent, black)" }}
       />
       <div className="relative z-10 mx-auto flex h-full max-w-[1400px] flex-col items-center px-5 pb-8 pt-[140px] text-center sm:px-8 md:pt-[150px] lg:px-16">
-        <div className="liquid-glass mb-10 inline-flex items-center gap-2 rounded-full px-1 py-1 font-body text-xs">
-          <span className="rounded-full bg-white px-3 py-1 font-semibold text-black">
+        <div className="liquid-glass mb-8 inline-flex items-center gap-1.5 rounded-full px-1 py-1 font-body text-[11px] sm:text-xs">
+          <span className="inline-flex items-center rounded-full bg-white px-2 py-[3px] text-[9px] font-semibold uppercase tracking-[0.08em] leading-none text-black sm:px-2.5 sm:py-1 sm:text-[10px]">
             New
           </span>
-          <span className="px-2">Introducing Premium Web Design And Development Services.</span>
+          <span className="px-1.5 pr-2 sm:px-2">Introducing Premium Web Design And Development Services.</span>
         </div>
         <BlurText
           text="The Website Your Brand Deserves"
@@ -278,13 +411,13 @@ function Hero() {
   );
 }
 
-function StartSection() {
+function StartSection({ liteMode }: { liteMode: boolean }) {
   return (
     <section
       id="process"
       className="relative min-h-[500px] overflow-hidden px-5 py-20 sm:px-8 md:py-24 lg:px-16"
     >
-      <HlsBackgroundVideo src="https://stream.mux.com/9JXDljEVWYwWu01PUkAemafDugK89o01BR6zqJ3aS9u00A.m3u8" />
+      <HlsBackgroundVideo src={PROCESS_VIDEO_HLS} liteMode={liteMode} />
       <GradientFades />
       <motion.div
         variants={reveal}
@@ -380,7 +513,7 @@ function FeatureRow({
         </button>
       </div>
       <div className="liquid-glass w-full overflow-hidden rounded-2xl lg:w-1/2">
-        <img src={image} alt={title} className="h-full w-full object-cover" />
+        <img src={image} alt={title} className="h-full w-full object-cover" loading="lazy" decoding="async" />
       </div>
     </motion.div>
   );
@@ -439,7 +572,7 @@ function FeaturesGrid() {
   );
 }
 
-function Stats() {
+function Stats({ liteMode }: { liteMode: boolean }) {
   const stats = [
     ["200+", "Sites Launched"],
     ["98%", "Client Satisfaction"],
@@ -449,7 +582,8 @@ function Stats() {
   return (
     <section className="relative overflow-hidden px-5 py-20 sm:px-8 lg:px-16">
       <HlsBackgroundVideo
-        src="https://stream.mux.com/NcU3HlHeF7CUL86azTTzpy3Tlb00d6iF3BmCdFslMJYM.m3u8"
+        src={STATS_VIDEO_HLS}
+        liteMode={liteMode}
         className="absolute inset-0 h-full w-full object-cover saturate-0"
       />
       <GradientFades />
@@ -520,11 +654,11 @@ function Testimonials() {
   );
 }
 
-function CtaFooter() {
+function CtaFooter({ liteMode }: { liteMode: boolean }) {
   const navigate = useNavigate();
   return (
     <section id="contact" className="relative overflow-hidden px-5 py-20 sm:px-8 md:py-24 lg:px-16">
-      <HlsBackgroundVideo src="https://stream.mux.com/8wrHPCX2dC3msyYU9ObwqNdm00u3ViXvOSHUMRYSEe5Q.m3u8" />
+      <HlsBackgroundVideo src={CTA_VIDEO_HLS} liteMode={liteMode} />
       <GradientFades />
       <div className="relative z-10 mx-auto max-w-5xl text-center">
         <h2 className="text-5xl font-heading italic leading-[0.85] md:text-6xl lg:text-7xl">
