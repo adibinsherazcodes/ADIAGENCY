@@ -30,7 +30,7 @@ const HERO_VIDEO_MP4 =
 const PROCESS_VIDEO_HLS = "https://stream.mux.com/9JXDljEVWYwWu01PUkAemafDugK89o01BR6zqJ3aS9u00A.m3u8";
 const STATS_VIDEO_HLS = "https://stream.mux.com/NcU3HlHeF7CUL86azTTzpy3Tlb00d6iF3BmCdFslMJYM.m3u8";
 const CTA_VIDEO_HLS = "https://stream.mux.com/8wrHPCX2dC3msyYU9ObwqNdm00u3ViXvOSHUMRYSEe5Q.m3u8";
-const SITE_URL = "https://adi-agency.com";
+const SITE_URL = "https://adiagency.netlify.app";
 const DEFAULT_OG_IMAGE = `${SITE_URL}/og-image.svg`;
 
 function preloadImage(src: string) {
@@ -886,6 +886,7 @@ function GradientFades() {
 }
 
 function PricingPage() {
+  const [showOptionsFor, setShowOptionsFor] = useState<string | null>(null);
   const plans = [
     {
       name: "Landing Page",
@@ -936,6 +937,14 @@ function PricingPage() {
     window.open(whatsappUrl, "_blank", "noopener,noreferrer");
   }
 
+  function openEmailForPlan(planName: string, planFeatures: string[]) {
+    const subject = `Website Request: ${planName}`;
+    const body = `Hi,\n\nI want a ${planName} website from ${AGENCY_NAME}.\n\nMy requirements include:\n- ${planFeatures.join('\n- ')}\n\nPlease share the process, timeline, and final quotation.\n\nBest regards,`;
+    const mailtoUrl = `mailto:${CONTACT_EMAIL}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+    trackEvent("cta_click", { location: "pricing_card_email", action: planName });
+    window.location.href = mailtoUrl;
+  }
+
   return (
     <div className="min-h-screen bg-black text-foreground">
       <Navbar />
@@ -968,14 +977,29 @@ function PricingPage() {
                   <li key={feature}>- {feature}</li>
                 ))}
               </ul>
-              <button
-                onClick={() => {
-                  openWhatsAppForPlan(plan.name, plan.features);
-                }}
-                className="liquid-glass-strong glass-interactive mt-7 inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium"
-              >
-                Request {plan.name} <ArrowUpRight size={15} />
-              </button>
+              {showOptionsFor === plan.name ? (
+                <div className="mt-7 flex flex-wrap items-center gap-3">
+                  <button
+                    onClick={() => openWhatsAppForPlan(plan.name, plan.features)}
+                    className="liquid-glass-strong glass-interactive inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium"
+                  >
+                    WhatsApp <ArrowUpRight size={15} />
+                  </button>
+                  <button
+                    onClick={() => openEmailForPlan(plan.name, plan.features)}
+                    className="liquid-glass-strong glass-interactive inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium"
+                  >
+                    Email <ArrowUpRight size={15} />
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => setShowOptionsFor(plan.name)}
+                  className="liquid-glass-strong glass-interactive mt-7 inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium"
+                >
+                  Request {plan.name} <ArrowUpRight size={15} />
+                </button>
+              )}
             </article>
           ))}
         </div>
