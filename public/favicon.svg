@@ -1,0 +1,11 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ADI favicon">
+  <defs>
+    <linearGradient id="favStroke" x1="10" y1="8" x2="54" y2="56" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#E6ECF5" />
+      <stop offset="1" stop-color="#7FC7FF" />
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="56" height="56" rx="16" fill="#06080E" />
+  <path d="M15 47L27 17L39 47H34L31 40H23L20 47H15ZM25 35H29L27 30L25 35Z" fill="url(#favStroke)" />
+  <path d="M43 19H46C52 19 56 23 56 29V36C56 42 52 46 46 46H43V19ZM48 24V41C51 40 52 38 52 36V29C52 27 51 25 48 24Z" fill="url(#favStroke)" />
+</svg>

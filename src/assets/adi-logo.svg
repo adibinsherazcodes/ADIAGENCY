@@ -1,0 +1,12 @@
+<svg width="256" height="256" viewBox="0 0 256 256" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="ADI Agency logo">
+  <defs>
+    <linearGradient id="adiStroke" x1="32" y1="24" x2="224" y2="232" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#E6ECF5" />
+      <stop offset="1" stop-color="#7FC7FF" />
+    </linearGradient>
+  </defs>
+  <rect x="16" y="16" width="224" height="224" rx="64" fill="#06080E" />
+  <path d="M66 188L116 66L166 188H146L134 157H98L86 188H66ZM106 136H126L116 108L106 136Z" fill="url(#adiStroke)" />
+  <path d="M176 72H189C214 72 230 88 230 113V143C230 168 214 184 189 184H176V72ZM196 93V163C206 160 210 153 210 143V113C210 103 206 96 196 93Z" fill="url(#adiStroke)" />
+  <circle cx="196" cy="57" r="7" fill="#7FC7FF" />
+</svg>
