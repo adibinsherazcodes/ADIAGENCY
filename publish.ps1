@@ -1,4 +1,4 @@
-git config user.email "adibinsheraz@example.com"
-git config user.name "adibinsheraz-ctrl"
-git commit -m "Initial commit"
-git push -u origin main
+git config user.email "adibinsherazcodes@example.com"
+git config user.name "adibinsherazcodes"
+git commit -m "Upload ADI Agency"
+git push -u origin main --force

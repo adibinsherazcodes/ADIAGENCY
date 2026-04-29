@@ -203,6 +203,7 @@ function Navbar() {
 }
 
 function Hero() {
+  const navigate = useNavigate();
   return (
     <section id="home" className="relative h-[960px] overflow-visible md:h-[1000px]">
       <video
@@ -255,7 +256,7 @@ function Hero() {
         >
           <button
             onClick={() => {
-              window.location.href = "/pricing";
+              navigate("/pricing");
             }}
             className="liquid-glass-strong glass-interactive inline-flex items-center gap-2 rounded-full px-5 py-2.5 text-sm font-medium"
           >
@@ -520,6 +521,7 @@ function Testimonials() {
 }
 
 function CtaFooter() {
+  const navigate = useNavigate();
   return (
     <section id="contact" className="relative overflow-hidden px-5 py-20 sm:px-8 md:py-24 lg:px-16">
       <HlsBackgroundVideo src="https://stream.mux.com/8wrHPCX2dC3msyYU9ObwqNdm00u3ViXvOSHUMRYSEe5Q.m3u8" />
@@ -535,7 +537,7 @@ function CtaFooter() {
         <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
           <button
             onClick={() => {
-              window.location.href = "/pricing";
+              navigate("/pricing");
             }}
             className="rounded-full bg-white px-6 py-3 text-sm font-medium text-black transition-transform duration-300 hover:-translate-y-0.5"
           >
