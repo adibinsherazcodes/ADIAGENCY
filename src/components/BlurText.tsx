@@ -18,6 +18,10 @@ export function BlurText({
 }: BlurTextProps) {
   const ref = useRef<HTMLDivElement | null>(null);
   const [inView, setInView] = useState(false);
+  const prefersReducedMotion = useMemo(
+    () => window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false,
+    [],
+  );
 
   useEffect(() => {
     const node = ref.current;
@@ -47,13 +51,21 @@ export function BlurText({
           key={`${part}-${index}`}
           className="inline-block will-change-transform"
           initial={
-            direction === "bottom"
+            prefersReducedMotion
+              ? { filter: "blur(0px)", opacity: 0, y: 0 }
+              : direction === "bottom"
               ? { filter: "blur(10px)", opacity: 0, y: 50 }
               : { filter: "blur(10px)", opacity: 0, y: -50 }
           }
           animate={
             inView
-              ? {
+              ? prefersReducedMotion
+                ? {
+                    filter: "blur(0px)",
+                    opacity: 1,
+                    y: 0,
+                  }
+                : {
                   filter: ["blur(10px)", "blur(5px)", "blur(0px)"],
                   opacity: [0, 0.5, 1],
                   y: direction === "bottom" ? [50, -5, 0] : [-50, 5, 0],
@@ -61,8 +73,8 @@ export function BlurText({
               : undefined
           }
           transition={{
-            delay: (index * delay) / 1000,
-            duration: 1.05,
+            delay: prefersReducedMotion ? 0 : (index * delay) / 1000,
+            duration: prefersReducedMotion ? 0.1 : 1.05,
             times: [0, 0.5, 1],
             ease: "easeOut",
           }}

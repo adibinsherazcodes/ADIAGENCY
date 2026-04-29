@@ -30,6 +30,8 @@ const HERO_VIDEO_MP4 =
 const PROCESS_VIDEO_HLS = "https://stream.mux.com/9JXDljEVWYwWu01PUkAemafDugK89o01BR6zqJ3aS9u00A.m3u8";
 const STATS_VIDEO_HLS = "https://stream.mux.com/NcU3HlHeF7CUL86azTTzpy3Tlb00d6iF3BmCdFslMJYM.m3u8";
 const CTA_VIDEO_HLS = "https://stream.mux.com/8wrHPCX2dC3msyYU9ObwqNdm00u3ViXvOSHUMRYSEe5Q.m3u8";
+const SITE_URL = "https://adi-agency.com";
+const DEFAULT_OG_IMAGE = `${SITE_URL}/og-image.svg`;
 
 function preloadImage(src: string) {
   return new Promise<void>((resolve) => {
@@ -40,10 +42,40 @@ function preloadImage(src: string) {
   });
 }
 
-function preloadMedia(url: string) {
-  return fetch(url, { cache: "force-cache", mode: "no-cors" })
-    .then(() => undefined)
-    .catch(() => undefined);
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
+  return new Promise<T | undefined>((resolve) => {
+    const timeoutId = window.setTimeout(() => resolve(undefined), timeoutMs);
+    promise
+      .then((value) => resolve(value))
+      .catch(() => resolve(undefined))
+      .finally(() => window.clearTimeout(timeoutId));
+  });
+}
+
+function setMetaTag(name: "name" | "property", key: string, content: string) {
+  let tag = document.head.querySelector(`meta[${name}="${key}"]`) as HTMLMetaElement | null;
+  if (!tag) {
+    tag = document.createElement("meta");
+    tag.setAttribute(name, key);
+    document.head.appendChild(tag);
+  }
+  tag.content = content;
+}
+
+function setCanonical(url: string) {
+  let canonical = document.head.querySelector("link[rel='canonical']") as HTMLLinkElement | null;
+  if (!canonical) {
+    canonical = document.createElement("link");
+    canonical.rel = "canonical";
+    document.head.appendChild(canonical);
+  }
+  canonical.href = url;
+}
+
+function trackEvent(event: string, params: Record<string, string> = {}) {
+  if (typeof window === "undefined") return;
+  const gtag = (window as Window & { gtag?: (...args: unknown[]) => void }).gtag;
+  if (gtag) gtag("event", event, params);
 }
 
 function addHeadLink(rel: string, href: string, crossOrigin = true) {
@@ -77,9 +109,28 @@ function HlsBackgroundVideo({
   liteMode?: boolean;
 }) {
   const videoRef = useRef<HTMLVideoElement | null>(null);
+  const [shouldLoad, setShouldLoad] = useState(false);
+
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (!entry) return;
+        if (entry.isIntersecting) {
+          setShouldLoad(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.01, rootMargin: "250px" },
+    );
+    observer.observe(video);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video || !shouldLoad) return;
     if (video.canPlayType("application/vnd.apple.mpegurl")) {
       video.src = src;
       video.play().catch(() => undefined);
@@ -117,7 +168,7 @@ function HlsBackgroundVideo({
         hls.destroy();
       };
     }
-  }, [src, liteMode]);
+  }, [src, liteMode, shouldLoad]);
 
   useEffect(() => {
     const video = videoRef.current;
@@ -170,42 +221,87 @@ const reveal = {
 
 export default function App() {
   const [isBootReady, setIsBootReady] = useState(false);
+  const location = useLocation();
   const isLiteMode = useMemo(() => {
     const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
-    const saveData = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection?.saveData ?? false;
+    const connection = (navigator as Navigator & { connection?: { saveData?: boolean; effectiveType?: string } }).connection;
+    const saveData = connection?.saveData ?? false;
+    const slowNetwork = ["slow-2g", "2g", "3g"].includes(connection?.effectiveType ?? "");
     const lowCpu = (navigator.hardwareConcurrency ?? 8) <= 4;
     const memory = (navigator as Navigator & { deviceMemory?: number }).deviceMemory ?? 8;
-    return reducedMotion || saveData || lowCpu || memory <= 4;
+    return reducedMotion || saveData || slowNetwork || lowCpu || memory <= 4;
   }, []);
+  const isMobile = useMemo(
+    () =>
+      window.matchMedia?.("(max-width: 768px)")?.matches ??
+      /Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent),
+    [],
+  );
 
   useEffect(() => {
     let cancelled = false;
-    const minLoaderTime = new Promise((resolve) => window.setTimeout(resolve, 900));
-    const criticalAssets = [logoIcon, featureOne, featureTwo];
+    const minLoaderTime = new Promise((resolve) => window.setTimeout(resolve, 650));
+    const criticalAssets = [logoIcon];
     const preloadAssets = Promise.allSettled(criticalAssets.map((asset) => preloadImage(asset)));
-    const preloadVideos = Promise.allSettled([
-      preloadMedia(HERO_VIDEO_MP4),
-      preloadMedia(PROCESS_VIDEO_HLS),
-      preloadMedia(STATS_VIDEO_HLS),
-      preloadMedia(CTA_VIDEO_HLS),
-    ]);
     const waitForFonts = document.fonts?.ready ?? Promise.resolve();
-    const safetyTimeout = new Promise((resolve) => window.setTimeout(resolve, 4500));
+    const preloadTimeout = isMobile ? 2000 : 1500;
 
     addHeadLink("preconnect", "https://d8j0ntlcm91z4.cloudfront.net");
     addHeadLink("preconnect", "https://stream.mux.com");
     addHeadLink("dns-prefetch", "//d8j0ntlcm91z4.cloudfront.net", false);
     addHeadLink("dns-prefetch", "//stream.mux.com", false);
 
-    Promise.race([Promise.all([minLoaderTime, preloadAssets, preloadVideos, waitForFonts]), safetyTimeout]).finally(
-      () => {
-        if (!cancelled) setIsBootReady(true);
-      },
-    );
+    Promise.all([
+      minLoaderTime,
+      withTimeout(preloadAssets, preloadTimeout),
+      withTimeout(waitForFonts, preloadTimeout),
+    ]).finally(() => {
+      if (!cancelled) setIsBootReady(true);
+    });
 
     return () => {
       cancelled = true;
     };
+  }, [isMobile]);
+
+  useEffect(() => {
+    const isPricing = location.pathname === "/pricing";
+    const title = isPricing
+      ? `${AGENCY_NAME} Pricing - Premium Web Solutions`
+      : `${AGENCY_NAME} - Premium Web Design & Development`;
+    const description = isPricing
+      ? "Transparent pricing for landing pages, e-commerce stores, and 3D animated websites by ADI Agency."
+      : "ADI Agency builds premium websites focused on conversion, speed, and measurable growth.";
+    const pageUrl = `${SITE_URL}${isPricing ? "/pricing" : "/"}`;
+    document.title = title;
+    setMetaTag("name", "description", description);
+    setMetaTag("property", "og:title", title);
+    setMetaTag("property", "og:description", description);
+    setMetaTag("property", "og:type", "website");
+    setMetaTag("property", "og:url", pageUrl);
+    setMetaTag("property", "og:image", DEFAULT_OG_IMAGE);
+    setMetaTag("name", "twitter:card", "summary_large_image");
+    setMetaTag("name", "twitter:title", title);
+    setMetaTag("name", "twitter:description", description);
+    setMetaTag("name", "twitter:image", DEFAULT_OG_IMAGE);
+    setCanonical(pageUrl);
+  }, [location.pathname]);
+
+  useEffect(() => {
+    trackEvent("page_view", { page_path: location.pathname });
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("PerformanceObserver" in window)) return;
+    const observer = new PerformanceObserver((list) => {
+      for (const entry of list.getEntries()) {
+        if (entry.entryType === "largest-contentful-paint") {
+          trackEvent("web_vital", { metric: "LCP", value: String(Math.round(entry.startTime)) });
+        }
+      }
+    });
+    observer.observe({ type: "largest-contentful-paint", buffered: true });
+    return () => observer.disconnect();
   }, []);
 
   useEffect(() => {
@@ -240,17 +336,34 @@ function HomePage({ liteMode }: { liteMode: boolean }) {
   }, [location.state]);
 
   return (
-    <div className="bg-black text-foreground capitalize">
+    <div className="bg-black text-foreground">
+      <a
+        href="#main-content"
+        className="sr-only z-[130] rounded bg-white px-3 py-2 text-black focus:not-sr-only focus:fixed focus:left-4 focus:top-4"
+      >
+        Skip to main content
+      </a>
       <Navbar />
-      <Hero liteMode={liteMode} />
-      <div className="bg-black">
+      <main id="main-content">
+        <Hero liteMode={liteMode} />
+        <div className="bg-black">
         <StartSection liteMode={liteMode} />
         <FeaturesChess />
         <FeaturesGrid />
         <Stats liteMode={liteMode} />
         <Testimonials />
         <CtaFooter liteMode={liteMode} />
-      </div>
+        </div>
+      </main>
+      <button
+        onClick={() => {
+          scrollToSection("contact");
+          trackEvent("cta_click", { location: "sticky_mobile", action: "get_started" });
+        }}
+        className="fixed bottom-4 left-1/2 z-[110] w-[calc(100%-2rem)] max-w-sm -translate-x-1/2 rounded-full bg-white px-5 py-3 text-sm font-semibold text-black shadow-lg md:hidden"
+      >
+        Start Your Project
+      </button>
     </div>
   );
 }
@@ -258,13 +371,15 @@ function HomePage({ liteMode }: { liteMode: boolean }) {
 function scrollToSection(id: string) {
   const target = document.getElementById(id);
   if (!target) return;
-  target.scrollIntoView({ behavior: "smooth", block: "start" });
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches ?? false;
+  target.scrollIntoView({ behavior: reducedMotion ? "auto" : "smooth", block: "start" });
 }
 
 function Navbar() {
   const navigate = useNavigate();
   const location = useLocation();
   const [isVisible, setIsVisible] = useState(true);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
 
   useEffect(() => {
     const onScroll = () => {
@@ -276,6 +391,7 @@ function Navbar() {
   }, []);
 
   function handleNavClick(id: string) {
+    setIsMenuOpen(false);
     if (id === "pricing") {
       navigate("/pricing");
       return;
@@ -288,12 +404,13 @@ function Navbar() {
   }
 
   return (
-    <nav
-      className={`fixed inset-x-0 top-0 z-[100] px-5 py-3 transition-all duration-300 sm:px-8 lg:px-16 ${
-        isVisible ? "translate-y-0 opacity-100" : "-translate-y-full opacity-0 pointer-events-none"
-      }`}
-    >
-      <div className="mx-auto flex max-w-[1400px] items-center justify-between">
+    <>
+      <nav
+        className={`fixed inset-x-0 top-0 z-[100] px-5 py-3 transition-all duration-300 sm:px-8 lg:px-16 ${
+          isVisible ? "translate-y-0 opacity-100" : "-translate-y-full opacity-0 pointer-events-none"
+        }`}
+      >
+        <div className="mx-auto flex max-w-[1400px] items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="liquid-glass-strong flex h-12 w-12 items-center justify-center rounded-full p-1">
             <img
@@ -326,13 +443,41 @@ function Navbar() {
           </button>
         </div>
         <button
-          onClick={() => scrollToSection("contact")}
+          onClick={() => setIsMenuOpen((prev) => !prev)}
+          aria-expanded={isMenuOpen}
+          aria-controls="mobile-nav-menu"
           className="liquid-glass-strong glass-interactive rounded-full px-4 py-2 text-xs md:hidden"
         >
-          Start
+          {isMenuOpen ? "Close" : "Menu"}
         </button>
-      </div>
-    </nav>
+        </div>
+      </nav>
+      {isMenuOpen ? (
+        <div id="mobile-nav-menu" className="fixed inset-0 z-[120] bg-black/90 px-5 pt-24 backdrop-blur-sm md:hidden">
+          <div className="mx-auto flex max-w-sm flex-col gap-3">
+            {navItems.map((item) => (
+              <button
+                key={item.id}
+                onClick={() => handleNavClick(item.id)}
+                className="liquid-glass-strong w-full rounded-full px-4 py-3 text-left text-sm font-medium"
+              >
+                {item.label}
+              </button>
+            ))}
+            <button
+              onClick={() => {
+                scrollToSection("contact");
+                setIsMenuOpen(false);
+                trackEvent("cta_click", { location: "mobile_nav", action: "get_started" });
+              }}
+              className="mt-2 rounded-full bg-white px-4 py-3 text-sm font-medium text-black"
+            >
+              Get Started
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </>
   );
 }
 
@@ -345,9 +490,8 @@ function Hero({ liteMode }: { liteMode: boolean }) {
         loop
         muted
         playsInline
-        preload={liteMode ? "metadata" : "auto"}
+        preload={liteMode ? "none" : "metadata"}
         disablePictureInPicture
-        poster="/images/hero_bg.jpeg"
         className="absolute left-0 z-0 h-auto w-full object-contain"
         style={{ top: "20%" }}
       >
@@ -671,6 +815,7 @@ function CtaFooter({ liteMode }: { liteMode: boolean }) {
         <div className="mt-10 flex flex-wrap items-center justify-center gap-4">
           <button
             onClick={() => {
+              trackEvent("cta_click", { location: "home_footer", action: "view_pricing" });
               navigate("/pricing");
             }}
             className="rounded-full bg-white px-6 py-3 text-sm font-medium text-black transition-transform duration-300 hover:-translate-y-0.5"
@@ -679,10 +824,11 @@ function CtaFooter({ liteMode }: { liteMode: boolean }) {
           </button>
         </div>
         <footer className="mt-32 flex flex-col items-center justify-between gap-4 border-t border-white/10 pt-8 text-xs text-white/40 md:flex-row">
-          <p>(c) 2026 {AGENCY_NAME}. All rights reserved.</p>
+          <p>© 2026 {AGENCY_NAME}. All rights reserved.</p>
           <div className="flex items-center gap-3">
             <a
               href={`mailto:${CONTACT_EMAIL}`}
+              onClick={() => trackEvent("contact_click", { channel: "email_home_footer" })}
               aria-label="Email"
               title="Email"
               className="liquid-glass-strong glass-interactive rounded-full p-2.5 text-white/85 transition-colors hover:text-white"
@@ -691,6 +837,7 @@ function CtaFooter({ liteMode }: { liteMode: boolean }) {
             </a>
             <a
               href={PHONE_LINK}
+              onClick={() => trackEvent("contact_click", { channel: "phone_home_footer" })}
               aria-label="Phone"
               title="Phone"
               className="liquid-glass-strong glass-interactive rounded-full p-2.5 text-white/85 transition-colors hover:text-white"
@@ -699,6 +846,7 @@ function CtaFooter({ liteMode }: { liteMode: boolean }) {
             </a>
             <a
               href={INSTAGRAM_URL}
+              onClick={() => trackEvent("contact_click", { channel: "instagram_home_footer" })}
               target="_blank"
               rel="noreferrer"
               aria-label="Instagram"
@@ -784,11 +932,12 @@ function PricingPage() {
     const requirementDetails = planFeatures.join(", ");
     const message = `Hi, I want a ${planName} website from ${AGENCY_NAME}. My requirement includes: ${requirementDetails}. Please share the process, timeline, and final quotation.`;
     const whatsappUrl = `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(message)}`;
+    trackEvent("cta_click", { location: "pricing_card", action: planName });
     window.open(whatsappUrl, "_blank", "noopener,noreferrer");
   }
 
   return (
-    <div className="min-h-screen bg-black text-foreground capitalize">
+    <div className="min-h-screen bg-black text-foreground">
       <Navbar />
       <section className="mx-auto max-w-[1400px] px-5 pb-20 pt-36 sm:px-8 lg:px-16">
         <div className="text-center">
@@ -832,10 +981,11 @@ function PricingPage() {
         </div>
 
         <footer className="mt-12 flex flex-col items-center justify-between gap-4 border-t border-white/10 pt-8 text-xs text-white/40 md:flex-row">
-          <p>(c) 2026 {AGENCY_NAME}. All rights reserved.</p>
+          <p>© 2026 {AGENCY_NAME}. All rights reserved.</p>
           <div className="flex items-center gap-3">
             <a
               href={`mailto:${CONTACT_EMAIL}`}
+              onClick={() => trackEvent("contact_click", { channel: "email_pricing_footer" })}
               aria-label="Email"
               title="Email"
               className="liquid-glass-strong glass-interactive rounded-full p-2.5 text-white/85 transition-colors hover:text-white"
@@ -844,6 +994,7 @@ function PricingPage() {
             </a>
             <a
               href={PHONE_LINK}
+              onClick={() => trackEvent("contact_click", { channel: "phone_pricing_footer" })}
               aria-label="Phone"
               title="Phone"
               className="liquid-glass-strong glass-interactive rounded-full p-2.5 text-white/85 transition-colors hover:text-white"
@@ -852,6 +1003,7 @@ function PricingPage() {
             </a>
             <a
               href={INSTAGRAM_URL}
+              onClick={() => trackEvent("contact_click", { channel: "instagram_pricing_footer" })}
               target="_blank"
               rel="noreferrer"
               aria-label="Instagram"
